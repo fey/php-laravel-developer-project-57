@@ -2,128 +2,176 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\TaskRequest;
-use App\Models\Label;
-use Illuminate\Database\Eloquent\Collection;
+use App\Models\{
+    Task,
+    TaskStatus,
+    User,
+    Label
+};
 use Illuminate\Http\Request;
-use App\Models\TaskStatus;
-use App\Models\Task;
-use App\Models\User;
+use Illuminate\Support\Facades\Auth;
+use Spatie\QueryBuilder\{
+    QueryBuilder,
+    AllowedFilter
+};
 
 class TaskController extends Controller
 {
-    protected Collection $taskStatuses;
-    protected Collection $users;
-    protected Collection $labels;
-
     public function __construct()
     {
-        $this->taskStatuses = TaskStatus::all();
-        $this->users = User::all();
-        $this->labels = Label::all();
+        $this->authorizeResource(Task::class);
     }
 
     /**
      * Display a listing of the resource.
+     *
+     * @return \Illuminate\Http\Response
      */
     public function index(Request $request)
     {
-        $filters = $request->input('filter', []);
 
-        $tasks = Task::query()
-            ->filterByStatus($filters['status_id'] ?? null)
-            ->filterByCreatedBy($filters['created_by_id'] ?? null)
-            ->filterByAssignedTo($filters['assigned_to_id'] ?? null)
+        $tasks = QueryBuilder::for(Task::class)
+            ->allowedFilters([
+                'name',
+                AllowedFilter::exact('status_id'),
+                AllowedFilter::exact('created_by_id'),
+                AllowedFilter::exact('assigned_to_id'),
+            ])
+            ->orderBy('id')
             ->paginate(15);
 
-        return view('tasks.index', [
-            'task' => new Task(),
-            'tasks' => $tasks,
-            'taskStatuses' => $this->taskStatuses,
-            'users' => $this->users,
-            'filters' => $filters,
-        ]);
+        $taskStatusesForFilterForm = TaskStatus::pluck('name', 'id');
+        $usersForFilterForm = User::pluck('name', 'id');
+        $filterParams = $request->input('filter');
+        return view('task.index', compact(
+            'tasks',
+            'taskStatusesForFilterForm',
+            'usersForFilterForm',
+            'filterParams'
+        ));
     }
 
     /**
      * Show the form for creating a new resource.
+     *
+     * @return \Illuminate\Http\Response
      */
     public function create()
     {
-        return view('tasks.create', [
-            'task' => new Task(),
-            'taskStatuses' => $this->taskStatuses,
-            'users' => $this->users,
-            'labels' => $this->labels
-        ]);
+        $task = new Task();
+        $taskStatuses = TaskStatus::all();
+        $users = User::all();
+        $labels = Label::all();
+        return view('task.create', compact('task', 'taskStatuses', 'users', 'labels'));
     }
 
     /**
      * Store a newly created resource in storage.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\Response
      */
-    public function store(TaskRequest $request)
+    public function store(Request $request)
     {
-        $this->saveTask(new Task(), $request, auth()->id());
-        flash(__('Задача успешно создана'))->success();
+        $validated = $this->validate(
+            $request,
+            [
+                'name' => 'required|unique:tasks',
+                'status_id' => 'required|exists:task_statuses,id',
+                'description' => 'nullable|string',
+                'assigned_to_id' => 'nullable|integer',
+                'labels' => ['nullable', 'array'],
+            ],
+            [
+                'name.unique' => __('validation.task.unique')
+            ]
+        );
+
+        $currentUser = Auth::user();
+
+        $task = $currentUser->createdTasks()->make($validated);
+        $task->save();
+
+        $labels = collect($request->input('labels'))
+                    ->filter(fn($label) => $label !== null);
+        $task->labels()->attach($labels);
+
+        flash(__('flashes.tasks.store.success'))->success();
+
         return redirect()->route('tasks.index');
     }
 
     /**
      * Display the specified resource.
+     *
+     * @param  \App\Models\Task  $task
+     * @return \Illuminate\Http\Response
      */
-    public function show(string $id)
+    public function show(Task $task)
     {
-        $task = Task::findOrFail($id);
-        return view('tasks.show', compact('task'));
+        return view('task.show', compact('task'));
     }
 
     /**
      * Show the form for editing the specified resource.
+     *
+     * @param  \App\Models\Task  $task
+     * @return \Illuminate\Http\Response
      */
-    public function edit(string $id)
+    public function edit(Task $task)
     {
-        return view('tasks.edit', [
-            'task' => Task::findOrFail($id),
-            'taskStatuses' => $this->taskStatuses,
-            'users' => $this->users,
-            'labels' => $this->labels
-        ]);
+        $taskStatuses = TaskStatus::all();
+        $users = User::all();
+        $labels = Label::all();
+        return view('task.edit', compact('task', 'taskStatuses', 'users', 'labels'));
     }
 
     /**
      * Update the specified resource in storage.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \App\Models\Task  $task
+     * @return \Illuminate\Http\Response
      */
-    public function update(TaskRequest $request, Task $task)
+    public function update(Request $request, Task $task)
     {
-        $this->saveTask($task, $request);
-        flash(__('Задача успешно изменена'))->success();
+        $validated = $this->validate(
+            $request,
+            [
+                'name' => 'required|unique:tasks,name,' . $task->id,
+                'description' => 'nullable|string',
+                'assigned_to_id' => 'nullable|integer',
+                'status_id' => 'required|integer',
+                'labels' => ['nullable', 'array'],
+            ],
+            [
+                'name.unique' => __('validation.task.unique')
+            ]
+        );
+
+        $labels = collect($request->input('labels'))
+            ->filter(fn($label) => $label !== null);
+        $task->labels()->sync($labels);
+
+        $task->fill($validated);
+        $task->save();
+        flash(__('flashes.tasks.updated'))->success();
+
         return redirect()->route('tasks.index');
     }
 
     /**
      * Remove the specified resource from storage.
+     *
+     * @param  \App\Models\Task  $task
+     * @return \Illuminate\Http\Response
      */
     public function destroy(Task $task)
     {
-        try {
-            $task->delete();
-            flash(__('Задача успешно удалена'))->success();
-        } catch (\Exception $e) {
-            flash(__('Не удалось удалить задачу'))->error();
-        }
+        $task->labels()->detach();
+        $task->delete();
+        flash(__('flashes.tasks.deleted'))->success();
 
         return redirect()->route('tasks.index');
-    }
-
-    /**
-     * Save the task to the database.
-     */
-    private function saveTask(Task $task, TaskRequest $request, $author_id = null)
-    {
-        $validated = $request->validated();
-        $task->fill($validated);
-        $author_id === null ?: $task->created_by_id = $author_id;
-        $task->save();
-        $task->labels()->sync($validated['labels']);
     }
 }

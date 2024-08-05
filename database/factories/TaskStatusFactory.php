@@ -14,10 +14,10 @@ class TaskStatusFactory extends Factory
      *
      * @return array<string, mixed>
      */
-    public function definition(): array
+    public function definition()
     {
         return [
-            'name' => fake()->word(),
+            'name' => fake()->words(2, true)
         ];
     }
 }

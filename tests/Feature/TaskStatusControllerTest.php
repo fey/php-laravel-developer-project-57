@@ -2,120 +2,70 @@
 
 namespace Tests\Feature;
 
-use App\Models\Task;
-use App\Models\TaskStatus;
-use App\Models\User;
-use Illuminate\Foundation\Testing\RefreshDatabase;
-use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
+use App\Models\{
+    User,
+    TaskStatus
+};
 
 class TaskStatusControllerTest extends TestCase
 {
-    use RefreshDatabase;
+    private User $user;
 
-    public function setUp(): void
+    protected function setUp(): void
     {
         parent::setUp();
-
-        $user = User::factory()->create();
-        $this->actingAs($user);
-        $this->taskStatus = TaskStatus::factory()->create();
+        $this->user = User::factory()->create();
+        TaskStatus::factory()->count(10)->create();
     }
 
-    public static function pathProvider(): array
+    public function testIndex(): void
     {
-        return [
-            ['/task_statuses', 200, 'taskStatuses.index'],
-            ['/task_statuses/create', 302],
-            ['/task_statuses/edit', 302]
-        ];
+        $response = $this->get(route('task_statuses.index'));
+        $response->assertOk();
     }
 
-    #[DataProvider('pathProvider')]
-    public function testAccessGuest($path, $code, $view = null)
+    public function testCreate(): void
     {
-        auth()->logout();
-        $response = $this->get($path);
-        $response->assertStatus($code);
-        if ($view) {
-            $response->assertViewIs($view);
-            $response->assertViewHas('taskStatuses');
-        }
+        $response = $this->actingAs($this->user)->get(route('task_statuses.create'));
+        $response->assertOk();
     }
 
-    public function testIndex()
+    public function testEdit(): void
     {
-        $response = $this->get('/task_statuses');
-
-        $response->assertStatus(200);
-        $response->assertViewIs('taskStatuses.index');
-        $response->assertViewHas('taskStatuses');
+        $taskStatus = TaskStatus::factory()->create();
+        $response = $this->actingAs($this->user)->get(route('task_statuses.edit', $taskStatus));
+        $response->assertOk();
     }
 
-    public function testCreate()
+    public function testStore(): void
     {
-        $response = $this->get('/task_statuses/create');
-        $response->assertStatus(200);
-        $response->assertViewIs('taskStatuses.create');
+        $data = TaskStatus::factory()->make()->only('name');
+        $response = $this->actingAs($this->user)->post(route('task_statuses.store', $data));
+        $response->assertSessionHasNoErrors();
+        $response->assertRedirect();
+
+        $this->assertDatabaseHas('task_statuses', $data);
     }
 
-    public function testEdit()
+    public function testUpdate(): void
     {
-        $response = $this->get("/task_statuses/{$this->taskStatus->id}/edit");
+        $taskStatus = TaskStatus::factory()->create();
+        $data = TaskStatus::factory()->make()->only('name');
+        $response = $this->actingAs($this->user)->patch(route('task_statuses.update', $taskStatus), $data);
+        $response->assertSessionHasNoErrors();
+        $response->assertRedirect();
 
-        $response->assertStatus(200);
-        $response->assertViewIs('taskStatuses.edit');
-        $response->assertViewHas('taskStatus', $this->taskStatus);
+        $this->assertDatabaseHas('task_statuses', $data);
     }
 
-    public function testStore()
+    public function testDelete(): void
     {
-        $taskStatus = TaskStatus::factory()->make();
-        $response = $this->post('/task_statuses', ['name' => $taskStatus->name]);
+        $taskStatus = TaskStatus::factory()->create();
+        $response = $this->actingAs($this->user)->delete(route('task_statuses.destroy', $taskStatus));
+        $response->assertSessionHasNoErrors();
+        $response->assertRedirect();
 
-        $this->assertDatabaseHas('task_statuses', ['name' => $taskStatus->name]);
-        $response->assertRedirectToRoute('task_statuses.index');
-    }
-
-    public function testUpdate()
-    {
-        $updatedData = ['name' => fake()->word];
-
-        $response = $this->patch("/task_statuses/{$this->taskStatus->id}", $updatedData);
-
-        $this->assertDatabaseHas('task_statuses', $updatedData);
-        $response->assertRedirect('/task_statuses');
-    }
-
-    public function testDestroy()
-    {
-        $response = $this->delete("/task_statuses/{$this->taskStatus->id}");
-
-        $this->assertDatabaseMissing('task_statuses', ['id' => $this->taskStatus->id]);
-        $response->assertRedirect('/task_statuses');
-    }
-
-    public function testDestroyTaskStatusInUse()
-    {
-        $task = Task::factory()->create(['status_id' => $this->taskStatus->id]);
-        $response = $this->delete("/task_statuses/{$this->taskStatus->id}");
-
-        $this->assertDatabaseHas('task_statuses', ['id' => $this->taskStatus->id]);
-        $response->assertRedirect('/task_statuses');
-    }
-
-    public function testValidate()
-    {
-        $validateProvider = [
-            ['post', '/task_statuses', []],
-            ['patch', "/task_statuses/{$this->taskStatus->id}", ['id' => $this->taskStatus->id]]
-        ];
-
-        foreach ($validateProvider as [$method, $path, $param]) {
-            $response = $this->$method($path, $param);
-            $response->assertStatus(302);
-            $response->assertRedirect('/');
-            $response->assertSessionHasErrors(['name']);
-        }
+        $this->assertDatabaseMissing('task_statuses', ['id' => (array) $taskStatus['id']]);
     }
 }

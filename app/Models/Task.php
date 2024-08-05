@@ -2,86 +2,47 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\{
+    BelongsTo,
+    BelongsToMany
+};
+use App\Models\{
+    TaskStatus,
+    User,
+    Label
+};
 
 class Task extends Model
 {
     use HasFactory;
 
     protected $fillable = [
-        'name', 'description', 'status_id', 'created_by_id', 'assigned_to_id'
+        'name',
+        'description',
+        'status_id',
+        'created_by_id',
+        'assigned_to_id'
     ];
-    protected $appends = ['author_name', 'status_name', 'executor_name', 'labels_name'];
 
-    public function author()
-    {
-        return $this->belongsTo(User::class, 'created_by_id');
-    }
-
-    public function getAuthorNameAttribute()
-    {
-        return $this->author->name;
-    }
-
-    public function status()
+    public function status(): BelongsTo
     {
         return $this->belongsTo(TaskStatus::class);
     }
 
-    public function getStatusNameAttribute()
+    public function createdBy(): BelongsTo
     {
-        return $this->status->name;
+        return $this->belongsTo(User::class);
     }
 
-    public function executor()
+    public function assignedTo(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'assigned_to_id')->withDefault();
+        return $this->belongsTo(User::class);
     }
 
-    public function getExecutorNameAttribute()
-    {
-        return $this->executor->name;
-    }
-
-    public function labels()
+    public function labels(): BelongsToMany
     {
         return $this->belongsToMany(Label::class);
-    }
-
-    public function getLabelsNameAttribute()
-    {
-        return $this->labels->pluck('name')->toArray();
-    }
-
-    protected static function booted()
-    {
-        static::addGlobalScope('withRelations', function ($query) {
-            $query->with(['author', 'status', 'executor', 'labels']);
-        });
-    }
-
-    public function scopeFilterByStatus($query, $statusId)
-    {
-        if (!empty($statusId)) {
-            return $query->where('status_id', $statusId);
-        }
-        return $query;
-    }
-
-    public function scopeFilterByCreatedBy($query, $createdById)
-    {
-        if (!empty($createdById)) {
-            return $query->where('created_by_id', $createdById);
-        }
-        return $query;
-    }
-
-    public function scopeFilterByAssignedTo($query, $assignedToId)
-    {
-        if (!empty($assignedToId)) {
-            return $query->where('assigned_to_id', $assignedToId);
-        }
-        return $query;
     }
 }

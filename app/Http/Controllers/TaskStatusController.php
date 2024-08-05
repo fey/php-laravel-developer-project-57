@@ -2,78 +2,119 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\TaskStatusRequest;
 use App\Models\TaskStatus;
 use Illuminate\Http\Request;
 
 class TaskStatusController extends Controller
 {
+    public function __construct()
+    {
+        $this->authorizeResource(TaskStatus::class);
+    }
+
     /**
      * Display a listing of the resource.
+     *
+     * @return \Illuminate\Http\Response
      */
     public function index()
     {
-        $taskStatuses = TaskStatus::all();
-        return view('taskStatuses.index', compact('taskStatuses'));
+        $taskStatuses = TaskStatus::paginate(15);
+
+        return view('task_status.index', compact('taskStatuses'));
     }
 
     /**
      * Show the form for creating a new resource.
+     *
+     * @return \Illuminate\Http\Response
      */
     public function create()
     {
-        return view('taskStatuses.create', ['taskStatus' => new TaskStatus()]);
+        $taskStatus = new TaskStatus();
+        return view('task_status.create', compact('taskStatus'));
     }
 
     /**
      * Store a newly created resource in storage.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\Response
      */
-    public function store(TaskStatusRequest $request)
+    public function store(Request $request)
     {
-        $this->saveTaskStatus(new TaskStatus(), $request);
-        flash(__('Статус успешно создан'))->success();
+        $validated = $this->validate(
+            $request,
+            [
+                'name' => 'required|unique:task_statuses|max:255'
+            ],
+            [
+                'name.unique' => __('validation.task_status.unique')
+            ]
+        );
+
+        $taskStatus = new TaskStatus();
+        $taskStatus->fill($validated);
+        $taskStatus->save();
+        flash(__('flashes.statuses.store.success'))->success();
+
         return redirect()->route('task_statuses.index');
     }
 
+
     /**
      * Show the form for editing the specified resource.
+     *
+     * @param  \App\Models\TaskStatus  $taskStatus
+     * @return \Illuminate\Http\Response
      */
     public function edit(TaskStatus $taskStatus)
     {
-        return view('taskStatuses.edit', compact('taskStatus'));
+        return view('task_status.edit', compact('taskStatus'));
     }
 
     /**
      * Update the specified resource in storage.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \App\Models\TaskStatus  $taskStatus
+     * @return \Illuminate\Http\Response
      */
-    public function update(TaskStatusRequest $request, TaskStatus $taskStatus)
+    public function update(Request $request, TaskStatus $taskStatus)
     {
-        $this->saveTaskStatus($taskStatus, $request);
-        flash(__('Статус успешно изменён'))->success();
+        $validated = $this->validate(
+            $request,
+            [
+                'name' => 'required|unique:task_statuses|max:255' . $taskStatus->id
+            ],
+            [
+                'name.unique' => __('validation.task_status.unique')
+            ]
+        );
+
+        $taskStatus->fill($validated);
+        $taskStatus->save();
+
+        flash(__('flashes.statuses.updated'))->success();
         return redirect()->route('task_statuses.index');
     }
 
     /**
      * Remove the specified resource from storage.
+     *
+     * @param  \App\Models\TaskStatus  $taskStatus
+     * @return \Illuminate\Http\Response
      */
     public function destroy(TaskStatus $taskStatus)
     {
-        try {
-            $taskStatus->delete();
-            flash(__('Статус успешно удалён'))->success();
-        } catch (\Exception $e) {
-            flash(__('Не удалось удалить статус'))->error();
+        if ($taskStatus->tasks()->exists()) {
+            flash(__('flashes.statuses.delete.error'))->error();
+            return back();
         }
-        return redirect()->route('task_statuses.index');
-    }
 
-    /**
-     * Save the task status to the database.
-     */
-    private function saveTaskStatus(TaskStatus $taskStatus, TaskStatusRequest $request)
-    {
-        $validated = $request->validated();
-        $taskStatus->fill($validated);
-        $taskStatus->save();
+        $taskStatus->delete();
+
+        flash(__('flashes.statuses.deleted'))->success();
+        return redirect()->route('task_statuses.index');
     }
 }
